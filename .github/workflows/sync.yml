@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   sync:
@@ -47,6 +48,7 @@ jobs:
 
           echo "tag=$(echo "$release" | jq -r '.tag_name')" >> "$GITHUB_OUTPUT"
           echo "name=$(echo "$release" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+
           echo "body<<EOF" >> "$GITHUB_OUTPUT"
           echo "$release" | jq -r '.body' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -63,6 +65,62 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Trigger build workflow
+        if: steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
+
+      - name: Wait for build workflow
+        if: steps.check_release.outputs.exists == 'false'
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Waiting for build workflow..."
+
+          for i in {1..60}; do
+            RUN_ID=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow build.yml \
+              --branch main \
+              --limit 1 \
+              --json databaseId,status \
+              --jq '.[0] | select(.status != "completed") | .databaseId')
+
+            if [ -n "$RUN_ID" ]; then
+              echo "Found build: $RUN_ID"
+              echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "Could not find build workflow run"
+            exit 1
+          fi
+
+          gh run watch "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --exit-status
+
+      - name: Download build artifacts
+        if: steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir artifacts
+
+          gh run download "${{ steps.build.outputs.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --name tic80-windows-pro \
+            --dir artifacts
+
       - name: Create release
         if: steps.check_release.outputs.exists == 'false'
         env:
@@ -71,4 +129,5 @@ jobs:
           gh release create "${{ steps.upstream_release.outputs.tag }}" \
             --repo "${{ github.repository }}" \
             --title "TIC-80 PRO ${{ steps.upstream_release.outputs.tag }}" \
-            --notes "${{ steps.upstream_release.outputs.body }}"
+            --notes "${{ steps.upstream_release.outputs.body }}" \
+            artifacts/*
