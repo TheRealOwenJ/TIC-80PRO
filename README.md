@@ -1,4 +1,4 @@
-PLEASE note that this fork does not add any new features, it just autobuilds the pro version via github actions!
+**PLEASE note that this fork does not add any new features, it just autobuilds the pro version via github actions!**
 
 [![Build Status](https://github.com/TheRealOwenJ/TIC-80PRO/workflows/Build/badge.svg)](https://github.com/TheRealOwenJ/TIC-80PRO/actions?query=workflow%3ABuild)
 
