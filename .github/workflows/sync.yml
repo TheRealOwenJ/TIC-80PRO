@@ -24,7 +24,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Add upstream
-        run: git remote add upstream https://github.com/nesbox/TIC-80
+        run: git remote add upstream https://github.com/nesbox/TIC-80.git
 
       - name: Fetch upstream
         run: git fetch upstream main
@@ -39,3 +39,36 @@ jobs:
 
       - name: Push
         run: git push origin main
+
+      - name: Get latest upstream release
+        id: upstream_release
+        run: |
+          release=$(curl -fsSL https://api.github.com/repos/nesbox/TIC-80/releases/latest)
+
+          echo "tag=$(echo "$release" | jq -r '.tag_name')" >> "$GITHUB_OUTPUT"
+          echo "name=$(echo "$release" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$release" | jq -r '.body' >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Check if release exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.upstream_release.outputs.tag }}" \
+            --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.upstream_release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "TIC-80 PRO ${{ steps.upstream_release.outputs.tag }}" \
+            --notes "${{ steps.upstream_release.outputs.body }}"
