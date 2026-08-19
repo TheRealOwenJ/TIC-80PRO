@@ -130,12 +130,6 @@ jobs:
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "short=$SHORT" >> "$GITHUB_OUTPUT"
 
-      - name: Record sync time
-        if: steps.changes.outputs.changed == 'true'
-        id: time
-        run: |
-          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       - name: Push synced main
         if: steps.changes.outputs.changed == 'true'
         run: |
@@ -160,6 +154,23 @@ jobs:
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Record dispatch time
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
+        id: time
+        run: |
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch build workflow
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+          COMMIT: ${{ steps.commit.outputs.commit }}
+        run: |
+          gh workflow run build.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${BRANCH}" \
+            -f commit="${COMMIT}"
+
       - name: Find build workflow run
         if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         id: build
@@ -176,13 +187,15 @@ jobs:
               --repo "${GITHUB_REPOSITORY}" \
               --workflow build.yml \
               --branch "${BRANCH}" \
+              --event workflow_dispatch \
               --limit 20 \
-              --json databaseId,status,createdAt \
+              --json databaseId,createdAt \
               --jq '
-                .[]
-                | select(.createdAt >= "'"$START_TIME"'")
-                | .databaseId
-              ' | head -n 1)
+                [.[] | select(.createdAt >= "'"$START_TIME"'")]
+                | sort_by(.createdAt)
+                | reverse
+                | .[0].databaseId // empty
+              ')
 
             if [ -n "$RUN_ID" ]; then
               echo "Found build workflow run: $RUN_ID"
