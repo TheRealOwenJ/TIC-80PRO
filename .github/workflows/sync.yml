@@ -7,7 +7,15 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: nesbox/TIC-80
+  BRANCH: main
 
 jobs:
   sync:
@@ -17,117 +25,314 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: main
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream
-        run: git remote add upstream https://github.com/nesbox/TIC-80.git
-
-      - name: Fetch upstream
-        run: git fetch upstream main
-
-      - name: Merge upstream
-        run: |
-          git merge upstream/main --no-edit || {
-            git checkout --ours .github/workflows
-            git add .github/workflows
-            git commit --no-edit
-          }
-
-      - name: Push
-        run: git push origin main
-
-      - name: Get latest upstream release
-        id: upstream_release
-        run: |
-          release=$(curl -fsSL https://api.github.com/repos/nesbox/TIC-80/releases/latest)
-
-          echo "tag=$(echo "$release" | jq -r '.tag_name')" >> "$GITHUB_OUTPUT"
-          echo "name=$(echo "$release" | jq -r '.name')" >> "$GITHUB_OUTPUT"
-
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$release" | jq -r '.body' >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      - name: Check if release exists
-        id: check_release
+      - name: Configure remotes
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
-          if gh release view "${{ steps.upstream_release.outputs.tag }}" \
-            --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://x-access-token:${GH_TOKEN}@github.com/${UPSTREAM_REPO}.git"
+
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Fetch upstream
+        run: |
+          git fetch --prune upstream main
+          git fetch --tags upstream
+
+      - name: Check for upstream changes
+        id: changes
+        run: |
+          LOCAL=$(git rev-parse HEAD)
+          UPSTREAM=$(git rev-parse upstream/main)
+
+          echo "local=$LOCAL"
+          echo "upstream=$UPSTREAM"
+
+          if [ "$LOCAL" = "$UPSTREAM" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date."
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream has changes."
           fi
 
+      - name: Merge upstream
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set +e
+
+          git merge upstream/main --no-edit
+          MERGE_STATUS=$?
+
+          if [ "$MERGE_STATUS" -eq 0 ]; then
+            exit 0
+          fi
+
+          echo "Merge conflict detected."
+
+          CONFLICTS=$(git diff --name-only --diff-filter=U)
+
+          echo "Conflicting files:"
+          echo "$CONFLICTS"
+
+          NON_WORKFLOW_CONFLICTS=$(echo "$CONFLICTS" | grep -v '^\.github/workflows/' || true)
+
+          if [ -n "$NON_WORKFLOW_CONFLICTS" ]; then
+            echo "Unexpected conflicts outside .github/workflows:"
+            echo "$NON_WORKFLOW_CONFLICTS"
+
+            git merge --abort
+            exit 1
+          fi
+
+          echo "Only workflow files conflict."
+          echo "Keeping fork versions of all .github/workflows files."
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            echo "Keeping fork version: $file"
+
+            git checkout --ours -- "$file"
+            git add "$file"
+          done <<< "$CONFLICTS"
+
+          git commit --no-edit
+
+      - name: Verify merge
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          if git ls-files -u | grep -q .; then
+            echo "Unresolved merge conflicts remain:"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          echo "Merge completed successfully."
+
+      - name: Push synced main
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          git push origin "HEAD:${BRANCH}"
+
+      - name: Get latest upstream release
+        id: upstream_release
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          release=$(gh api "repos/${UPSTREAM_REPO}/releases/latest")
+
+          tag=$(echo "$release" | jq -r '.tag_name')
+          name=$(echo "$release" | jq -r '.name')
+          body=$(echo "$release" | jq -r '.body')
+
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Could not determine latest upstream release tag."
+            exit 1
+          fi
+
+          echo "Latest upstream release: $tag"
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "body<<EOF"
+            echo "$body"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify release commit is in synced branch
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          TAG="${{ steps.upstream_release.outputs.tag }}"
+
+          git fetch upstream "refs/tags/${TAG}:refs/tags/${TAG}" || {
+            echo "Could not fetch upstream release tag ${TAG}."
+            exit 1
+          }
+
+          TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+          MAIN_COMMIT=$(git rev-parse origin/main)
+
+          echo "Release tag commit: $TAG_COMMIT"
+          echo "Fork main commit:   $MAIN_COMMIT"
+
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" "$MAIN_COMMIT"; then
+            echo "Release tag ${TAG} is not contained in fork main."
+            echo "Refusing to build and publish this release."
+            exit 1
+          fi
+
+      - name: Check if release exists
+        id: check_release
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          TAG="${{ steps.upstream_release.outputs.tag }}"
+
+          if gh release view "$TAG" \
+            --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG does not exist."
+          fi
+
+      - name: Get current time
+        id: time
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        run: |
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Get release commit
+        id: release_commit
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          TAG="${{ steps.upstream_release.outputs.tag }}"
+
+          git fetch upstream "refs/tags/${TAG}:refs/tags/${TAG}"
+
+          COMMIT=$(git rev-list -n 1 "$TAG")
+
+          echo "Release tag: $TAG"
+          echo "Release commit: $COMMIT"
+
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
       - name: Trigger build workflow
-        if: steps.check_release.outputs.exists == 'false'
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
           gh workflow run build.yml \
-            --repo "${{ github.repository }}" \
-            --ref main
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f commit="${{ steps.release_commit.outputs.commit }}"
 
-      - name: Wait for build workflow
-        if: steps.check_release.outputs.exists == 'false'
+      - name: Find build workflow run
         id: build
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+          START_TIME: ${{ steps.time.outputs.timestamp }}
         run: |
-          echo "Waiting for build workflow..."
+          echo "Waiting for build workflow to appear..."
+
+          RUN_ID=""
 
           for i in {1..60}; do
             RUN_ID=$(gh run list \
-              --repo "${{ github.repository }}" \
+              --repo "${GITHUB_REPOSITORY}" \
               --workflow build.yml \
               --branch main \
-              --limit 1 \
-              --json databaseId,status \
-              --jq '.[0] | select(.status != "completed") | .databaseId')
+              --limit 20 \
+              --json databaseId,status,createdAt \
+              --jq '
+                .[]
+                | select(.createdAt >= "'"$START_TIME"'")
+                | .databaseId
+              ' | head -n 1)
 
             if [ -n "$RUN_ID" ]; then
-              echo "Found build: $RUN_ID"
-              echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "Found build workflow run: $RUN_ID"
               break
             fi
 
-            sleep 10
+            echo "Build run not visible yet. Attempt $i/60..."
+            sleep 5
           done
 
           if [ -z "$RUN_ID" ]; then
-            echo "Could not find build workflow run"
+            echo "Could not find the triggered build workflow."
             exit 1
           fi
 
-          gh run watch "$RUN_ID" \
-            --repo "${{ github.repository }}" \
-            --exit-status
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Download build artifacts
-        if: steps.check_release.outputs.exists == 'false'
+      - name: Wait for build workflow
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
-          mkdir artifacts
+          gh run watch \
+            "${{ steps.build.outputs.run_id }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --exit-status
 
-          gh run download "${{ steps.build.outputs.run_id }}" \
-            --repo "${{ github.repository }}" \
+      - name: Verify build succeeded
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          gh run view \
+            "${{ steps.build.outputs.run_id }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json conclusion,status
+
+      - name: Download Windows PRO artifact
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+        run: |
+          rm -rf artifacts
+          mkdir -p artifacts
+
+          gh run download \
+            "${{ steps.build.outputs.run_id }}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --name tic80-windows-pro \
             --dir artifacts
 
+          if ! find artifacts -type f -print -quit | grep -q .; then
+            echo "Build artifact is empty or missing."
+            exit 1
+          fi
+
+          echo "Downloaded artifacts:"
+          find artifacts -type f -print
+
       - name: Create release
-        if: steps.check_release.outputs.exists == 'false'
+        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+          RELEASE_BODY: ${{ steps.upstream_release.outputs.body }}
+          RELEASE_COMMIT: ${{ steps.release_commit.outputs.commit }}
+          RELEASE_TAG: ${{ steps.upstream_release.outputs.tag }}
         run: |
-          gh release create "${{ steps.upstream_release.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --title "TIC-80 PRO ${{ steps.upstream_release.outputs.tag }}" \
-            --notes "${{ steps.upstream_release.outputs.body }}" \
-            artifacts/*
+          gh release create \
+            "${{ steps.upstream_release.outputs.tag }}" \
+            artifacts/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "$RELEASE_COMMIT" \
+            --title "TIC-80 PRO $RELEASE_TAG" \
+            --notes "$RELEASE_BODY"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Upstream Sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream: \`${UPSTREAM_REPO}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: \`${BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream changed: \`${{ steps.changes.outputs.changed || 'unknown' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: \`${{ steps.upstream_release.outputs.tag || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release already existed: \`${{ steps.check_release.outputs.exists || 'unknown' }}\`" >> "$GITHUB_STEP_SUMMARY"
