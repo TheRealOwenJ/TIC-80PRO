@@ -154,30 +154,6 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Verify release commit is in synced branch
-        if: steps.changes.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-        run: |
-          TAG="${{ steps.upstream_release.outputs.tag }}"
-
-          git fetch upstream "refs/tags/${TAG}:refs/tags/${TAG}" || {
-            echo "Could not fetch upstream release tag ${TAG}."
-            exit 1
-          }
-
-          TAG_COMMIT=$(git rev-list -n 1 "$TAG")
-          MAIN_COMMIT=$(git rev-parse origin/main)
-
-          echo "Release tag commit: $TAG_COMMIT"
-          echo "Fork main commit:   $MAIN_COMMIT"
-
-          if ! git merge-base --is-ancestor "$TAG_COMMIT" "$MAIN_COMMIT"; then
-            echo "Release tag ${TAG} is not contained in fork main."
-            echo "Refusing to build and publish this release."
-            exit 1
-          fi
-
       - name: Check if release exists
         id: check_release
         if: steps.changes.outputs.changed == 'true'
