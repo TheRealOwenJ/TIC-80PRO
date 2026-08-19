@@ -1,6 +1,14 @@
 name: Build
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit to build"
+        required: false
+        type: string
 
 jobs:
   # === Windows ===
@@ -12,6 +20,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -54,6 +64,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -83,6 +95,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -118,6 +132,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -153,6 +169,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -190,6 +208,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Install Host toolchain
         run: |
@@ -254,6 +274,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Install Host toolchain
         run: |
@@ -322,6 +344,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Install Host toolchain
         run: |
@@ -351,6 +375,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Install Host toolchain
         run: |
@@ -379,6 +405,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Install
         run: brew uninstall --ignore-dependencies libidn2
@@ -406,6 +434,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Install
         run: brew uninstall --ignore-dependencies libidn2
@@ -433,6 +463,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
@@ -475,6 +507,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - uses: ruby/setup-ruby@v1
         with:
