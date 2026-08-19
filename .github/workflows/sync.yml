@@ -40,13 +40,11 @@ jobs:
         run: |
           git remote remove upstream 2>/dev/null || true
           git remote add upstream "https://x-access-token:${GH_TOKEN}@github.com/${UPSTREAM_REPO}.git"
-
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
       - name: Fetch upstream
         run: |
           git fetch --prune upstream main
-          git fetch --tags upstream
 
       - name: Check for upstream changes
         id: changes
@@ -54,8 +52,8 @@ jobs:
           LOCAL=$(git rev-parse HEAD)
           UPSTREAM=$(git rev-parse upstream/main)
 
-          echo "local=$LOCAL"
-          echo "upstream=$UPSTREAM"
+          echo "Local:    $LOCAL"
+          echo "Upstream: $UPSTREAM"
 
           if [ "$LOCAL" = "$UPSTREAM" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -119,48 +117,31 @@ jobs:
 
           echo "Merge completed successfully."
 
+      - name: Get synced commit
+        if: steps.changes.outputs.changed == 'true'
+        id: commit
+        run: |
+          COMMIT=$(git rev-parse HEAD)
+          SHORT=$(git rev-parse --short HEAD)
+
+          echo "Synced commit: $COMMIT"
+          echo "Short commit:  $SHORT"
+
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+
       - name: Push synced main
         if: steps.changes.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
           git push origin "HEAD:${BRANCH}"
 
-      - name: Get latest upstream release
-        id: upstream_release
-        if: steps.changes.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-        run: |
-          release=$(gh api "repos/${UPSTREAM_REPO}/releases/latest")
-
-          tag=$(echo "$release" | jq -r '.tag_name')
-          name=$(echo "$release" | jq -r '.name')
-          body=$(echo "$release" | jq -r '.body')
-
-          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
-            echo "Could not determine latest upstream release tag."
-            exit 1
-          fi
-
-          echo "Latest upstream release: $tag"
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-
-          {
-            echo "body<<EOF"
-            echo "$body"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Check if release exists
-        id: check_release
         if: steps.changes.outputs.changed == 'true'
+        id: release
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
-          TAG="${{ steps.upstream_release.outputs.tag }}"
+          TAG="upstream-${{ steps.commit.outputs.short }}"
 
           if gh release view "$TAG" \
             --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
@@ -171,42 +152,27 @@ jobs:
             echo "Release $TAG does not exist."
           fi
 
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Get current time
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         id: time
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
         run: |
           echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - name: Get release commit
-        id: release_commit
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-        run: |
-          TAG="${{ steps.upstream_release.outputs.tag }}"
-
-          git fetch upstream "refs/tags/${TAG}:refs/tags/${TAG}"
-
-          COMMIT=$(git rev-list -n 1 "$TAG")
-
-          echo "Release tag: $TAG"
-          echo "Release commit: $COMMIT"
-
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
-
       - name: Trigger build workflow
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
           gh workflow run build.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref main \
-            -f commit="${{ steps.release_commit.outputs.commit }}"
+            -f commit="${{ steps.commit.outputs.commit }}"
 
       - name: Find build workflow run
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         id: build
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
           START_TIME: ${{ steps.time.outputs.timestamp }}
@@ -219,7 +185,6 @@ jobs:
             RUN_ID=$(gh run list \
               --repo "${GITHUB_REPOSITORY}" \
               --workflow build.yml \
-              --branch main \
               --limit 20 \
               --json databaseId,status,createdAt \
               --jq '
@@ -245,7 +210,7 @@ jobs:
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Wait for build workflow
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
@@ -254,18 +219,8 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --exit-status
 
-      - name: Verify build succeeded
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-        run: |
-          gh run view \
-            "${{ steps.build.outputs.run_id }}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --json conclusion,status
-
-      - name: Download Windows PRO artifact
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+      - name: Download all build artifacts
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
         run: |
@@ -275,32 +230,54 @@ jobs:
           gh run download \
             "${{ steps.build.outputs.run_id }}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --name tic80-windows-pro \
             --dir artifacts
-
-          if ! find artifacts -type f -print -quit | grep -q .; then
-            echo "Build artifact is empty or missing."
-            exit 1
-          fi
 
           echo "Downloaded artifacts:"
           find artifacts -type f -print
 
+          if ! find artifacts -type f -print -quit | grep -q .; then
+            echo "No build artifacts were downloaded."
+            exit 1
+          fi
+
+      - name: Package artifacts
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
+        run: |
+          mkdir -p release
+
+          find artifacts -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
+            name=$(basename "$dir")
+
+            echo "Packaging $name..."
+
+            (
+              cd "$dir"
+              zip -r "../../release/${name}.zip" .
+            )
+          done
+
+          echo "Release files:"
+          ls -lh release
+
       - name: Create release
-        if: steps.changes.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false'
+        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-          RELEASE_BODY: ${{ steps.upstream_release.outputs.body }}
-          RELEASE_COMMIT: ${{ steps.release_commit.outputs.commit }}
-          RELEASE_TAG: ${{ steps.upstream_release.outputs.tag }}
+          COMMIT: ${{ steps.commit.outputs.commit }}
+          SHORT: ${{ steps.commit.outputs.short }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh release create \
-            "${{ steps.upstream_release.outputs.tag }}" \
-            artifacts/* \
+          gh release create "$TAG" \
+            release/* \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "$RELEASE_COMMIT" \
-            --title "TIC-80 PRO $RELEASE_TAG" \
-            --notes "$RELEASE_BODY"
+            --target "$COMMIT" \
+            --title "TIC-80 PRO upstream-$SHORT" \
+            --notes "TIC-80 PRO build from upstream commit:
+
+          Commit: $COMMIT
+          Upstream: https://github.com/${UPSTREAM_REPO}/commit/$COMMIT
+
+          This release was automatically built from the latest synced upstream commit."
 
       - name: Summary
         if: always()
@@ -310,5 +287,5 @@ jobs:
           echo "- Upstream: \`${UPSTREAM_REPO}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: \`${BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Upstream changed: \`${{ steps.changes.outputs.changed || 'unknown' }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Release: \`${{ steps.upstream_release.outputs.tag || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Release already existed: \`${{ steps.check_release.outputs.exists || 'unknown' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ steps.commit.outputs.commit || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: \`${{ steps.release.outputs.tag || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
