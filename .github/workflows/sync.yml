@@ -130,6 +130,12 @@ jobs:
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "short=$SHORT" >> "$GITHUB_OUTPUT"
 
+      - name: Record sync time
+        if: steps.changes.outputs.changed == 'true'
+        id: time
+        run: |
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Push synced main
         if: steps.changes.outputs.changed == 'true'
         run: |
@@ -154,22 +160,6 @@ jobs:
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Get current time
-        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
-        id: time
-        run: |
-          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Trigger build workflow
-        if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-        run: |
-          gh workflow run build.yml \
-            --repo "${GITHUB_REPOSITORY}" \
-            --ref main \
-            -f commit="${{ steps.commit.outputs.commit }}"
-
       - name: Find build workflow run
         if: steps.changes.outputs.changed == 'true' && steps.release.outputs.exists == 'false'
         id: build
@@ -185,6 +175,7 @@ jobs:
             RUN_ID=$(gh run list \
               --repo "${GITHUB_REPOSITORY}" \
               --workflow build.yml \
+              --branch "${BRANCH}" \
               --limit 20 \
               --json databaseId,status,createdAt \
               --jq '
