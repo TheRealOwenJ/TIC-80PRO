@@ -104,14 +104,14 @@ def ticPro = project.findProperty('PRO') ?: 'OFF'
 
 android {
     namespace "com.nesbox.tic"
-    compileSdkVersion 31
+    compileSdkVersion 33
     ndkVersion "23.2.8568313"
     defaultConfig {
         if (buildAsApplication) {
             applicationId "com.nesbox.tic"
         }
         minSdkVersion 24 // Android 7.0 (Nougat)
-        targetSdkVersion 31 // Android 12 (Snow Cone)
+        targetSdkVersion 33 // Android 13 (Tiramisu)
         // The manifest carries no version of its own: AGP writes these into
         // the merged one (see AndroidManifest.xml).
         versionCode ticVersionCode
@@ -123,7 +123,7 @@ android {
         }
         externalNativeBuild {
             ndkBuild {
-                arguments "APP_PLATFORM=android-31"
+                arguments "APP_PLATFORM=android-33"
             }
             cmake {
                 arguments "-DBUILD_WITH_RUBY=OFF",
