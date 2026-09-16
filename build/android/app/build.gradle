@@ -9,17 +9,15 @@ else {
 
 // The keystore passwords are secrets and are not in the repository: the
 // environment wins (the CI passes the repository secrets there), a gradle
-// property (-PRELEASE_STORE_PASSWORD=…) is the local fallback. A release
-// build without either fails here with the name of what is missing instead
-// of failing inside the signer with "keystore was tampered with"; a debug
-// build never asks.
+// property (-PRELEASE_STORE_PASSWORD=…) is the local fallback. When neither
+// is available the release signing config is skipped entirely so that CI
+// builds (and local test builds) can still produce an APK without the
+// keystore — the APK will be unsigned / debug-signed and suitable for
+// testing but not for store upload.
 def signingSecret = { String name ->
-    def value = System.getenv(name) ?: project.findProperty(name)
-    if (!value && gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }) {
-        throw new GradleException("${name} is not set — export it or pass -P${name}=… (see build/android/gradle.properties)")
-    }
-    return value
+    return System.getenv(name) ?: project.findProperty(name)
 }
+def hasSigningCredentials = signingSecret('RELEASE_STORE_PASSWORD') && signingSecret('RELEASE_KEY_PASSWORD')
 
 // The version the APK reports, from git tags with the same rule as
 // cmake/version.cmake: HEAD on a "vX.Y.Z" tag is that release, any other
@@ -139,23 +137,26 @@ android {
     }
 
     signingConfigs {
-
-        release {
-           storeFile file(RELEASE_STORE_FILE)
-           // the passwords are secrets: the environment first (CI passes the
-           // repository secrets there), then a gradle property (-P…) for a
-           // local build. Neither is in the repository — see gradle.properties
-           storePassword signingSecret('RELEASE_STORE_PASSWORD')
-           keyAlias RELEASE_KEY_ALIAS
-           keyPassword signingSecret('RELEASE_KEY_PASSWORD')
-       }
+        if (hasSigningCredentials) {
+            release {
+               storeFile file(RELEASE_STORE_FILE)
+               // the passwords are secrets: the environment first (CI passes the
+               // repository secrets there), then a gradle property (-P…) for a
+               // local build. Neither is in the repository — see gradle.properties
+               storePassword signingSecret('RELEASE_STORE_PASSWORD')
+               keyAlias RELEASE_KEY_ALIAS
+               keyPassword signingSecret('RELEASE_KEY_PASSWORD')
+           }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            if (hasSigningCredentials) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     if (!project.hasProperty('EXCLUDE_NATIVE_LIBS')) {
