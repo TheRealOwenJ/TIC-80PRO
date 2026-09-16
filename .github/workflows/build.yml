@@ -995,7 +995,7 @@ jobs:
           cd build/android
           chmod +x gradlew
           ./gradlew assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk tic80.apk
+          cp app/build/outputs/apk/release/*.apk tic80.apk
 
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
