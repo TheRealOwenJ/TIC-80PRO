@@ -279,7 +279,6 @@ jobs:
             --notes "TIC-80 PRO build from upstream commit:
 
           Commit: $COMMIT
-          Upstream: https://github.com/${UPSTREAM_REPO}/commit/$COMMIT
 
           This release was automatically built from the latest synced upstream commit."
 
