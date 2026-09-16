@@ -68,43 +68,72 @@ jobs:
         run: |
           set +e
 
+          # Save the current state of .github/workflows before merging
+          WORKFLOW_FILES_BEFORE=$(git ls-tree -r --name-only HEAD -- .github/workflows/ || true)
+
           git merge upstream/main --no-edit
           MERGE_STATUS=$?
 
-          if [ "$MERGE_STATUS" -eq 0 ]; then
-            exit 0
+          if [ "$MERGE_STATUS" -ne 0 ]; then
+            echo "Merge conflict detected."
+
+            CONFLICTS=$(git diff --name-only --diff-filter=U)
+
+            echo "Conflicting files:"
+            echo "$CONFLICTS"
+
+            NON_WORKFLOW_CONFLICTS=$(echo "$CONFLICTS" | grep -v '^\.github/workflows/' || true)
+
+            if [ -n "$NON_WORKFLOW_CONFLICTS" ]; then
+              echo "Unexpected conflicts outside .github/workflows:"
+              echo "$NON_WORKFLOW_CONFLICTS"
+
+              git merge --abort
+              exit 1
+            fi
+
+            echo "Only workflow files conflict."
+            echo "Keeping fork versions of all .github/workflows files."
+
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+
+              echo "Keeping fork version: $file"
+
+              git checkout --ours -- "$file"
+              git add "$file"
+            done <<< "$CONFLICTS"
+
+            git commit --no-edit
           fi
 
-          echo "Merge conflict detected."
+          # Discard any new or updated files in .github/workflows from upstream
+          echo "Restoring fork version of .github/workflows/..."
 
-          CONFLICTS=$(git diff --name-only --diff-filter=U)
+          # Remove any new workflow files added by upstream
+          WORKFLOW_FILES_AFTER=$(git ls-tree -r --name-only HEAD -- .github/workflows/ || true)
+          NEW_FILES=$(comm -13 <(echo "$WORKFLOW_FILES_BEFORE" | sort) <(echo "$WORKFLOW_FILES_AFTER" | sort) || true)
 
-          echo "Conflicting files:"
-          echo "$CONFLICTS"
-
-          NON_WORKFLOW_CONFLICTS=$(echo "$CONFLICTS" | grep -v '^\.github/workflows/' || true)
-
-          if [ -n "$NON_WORKFLOW_CONFLICTS" ]; then
-            echo "Unexpected conflicts outside .github/workflows:"
-            echo "$NON_WORKFLOW_CONFLICTS"
-
-            git merge --abort
-            exit 1
+          if [ -n "$NEW_FILES" ]; then
+            echo "Removing new workflow files from upstream:"
+            echo "$NEW_FILES"
+            echo "$NEW_FILES" | xargs -r git rm -f --
           fi
 
-          echo "Only workflow files conflict."
-          echo "Keeping fork versions of all .github/workflows files."
+          # Restore modified workflow files to the fork's version
+          CHANGED_WORKFLOWS=$(git diff --name-only HEAD~1 HEAD -- .github/workflows/ 2>/dev/null || true)
 
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
+          if [ -n "$CHANGED_WORKFLOWS" ]; then
+            echo "Restoring modified workflow files to fork version:"
+            echo "$CHANGED_WORKFLOWS"
+            git checkout HEAD~1 -- .github/workflows/
+          fi
 
-            echo "Keeping fork version: $file"
-
-            git checkout --ours -- "$file"
-            git add "$file"
-          done <<< "$CONFLICTS"
-
-          git commit --no-edit
+          # Amend the merge commit if we made changes
+          if [ -n "$NEW_FILES" ] || [ -n "$CHANGED_WORKFLOWS" ]; then
+            git add .github/workflows/
+            git commit --amend --no-edit
+          fi
 
       - name: Verify merge
         if: steps.changes.outputs.changed == 'true'
