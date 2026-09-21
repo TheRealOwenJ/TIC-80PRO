@@ -42,7 +42,15 @@ set(BUILD_WITH_ALL_DEFAULT OFF)
 
 option(BUILD_STATIC "Static runtime" ${BUILD_STATIC_DEFAULT})
 option(BUILD_WITH_ALL "Build all supported scripts" ${BUILD_WITH_ALL_DEFAULT})
+option(BUILD_APPLE "Apple Native Backend Enabled" OFF)
+option(BUILD_RENDER_CACHE "Build with render cache optimization" OFF)
+if(BUILD_RENDER_CACHE)
+    add_definitions(-DBUILD_RENDER_CACHE)
+endif()
 option(BUILD_SDL "SDL Enabled" ON)
+if(BUILD_APPLE)
+    set(BUILD_SDL OFF)
+endif()
 option(BUILD_SDLGPU "SDL GPU Enabled" OFF)
 option(BUILD_LIBRETRO "libretro Enabled" ${BUILD_LIBRETRO_DEFAULT})
 option(BUILD_TOOLS "bin2txt prj2cart" OFF)
@@ -62,6 +70,13 @@ option(PREFER_SYSTEM_LIBRARIES "Prefer link with system libraries" OFF)
 # browser itself comes with the editors — the console's `surf` command runs
 # on it — as it always has. Forcing it on with BUILD_EDITORS is what put the
 # entry in every build's menu (#2889).
+#
+# No CI job asks for it, and none should: what the pipeline builds is what
+# everybody gets, and a browser that arrives that way is a decision made for
+# the default build rather than one taken by whoever wants it on their device.
+# #2912 had turned the option on for the arm64 GLES2 job; that build is
+# editorless again, and a build made with the option is one somebody made on
+# purpose.
 
 if(NOT TIC80_TARGET)
     set(TIC80_TARGET tic80)
@@ -73,9 +88,16 @@ endif()
 
 if(NINTENDO_SWITCH AND NOT LIBRETRO_STATIC)
     set(PREFER_SYSTEM_LIBRARIES ON)
+    if(NOT TIC_DATA_PATH)
+        set(TIC_DATA_PATH "/switch/tic80")
+    endif()
 endif()
 
 add_library(runtime INTERFACE)
+
+if(TIC_DATA_PATH)
+    target_compile_definitions(runtime INTERFACE TIC_DATA_PATH="${TIC_DATA_PATH}")
+endif()
 
 if(BUILD_STATIC)
     set(TIC_RUNTIME STATIC)
@@ -107,6 +129,10 @@ if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID)
         set(FREEBSD TRUE)
     endif()
 endif()
+
+option(PREFER_SYSTEM_SDL2 "Prefer system SDL2" ${PREFER_SYSTEM_LIBRARIES})
+option(USE_GLES2 "Use GLES2" OFF)
+option(USE_EGL "Use EGL" OFF)
 
 if (BUILD_NO_OPTIMIZATION)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0")
@@ -168,7 +194,6 @@ include(cmake/blipbuf.cmake)
 include(cmake/zlib.cmake)
 include(cmake/zip.cmake)
 include(cmake/png.cmake)
-include(cmake/tools.cmake)
 
 include(cmake/lua.cmake)
 include(cmake/moon.cmake)
@@ -182,6 +207,11 @@ include(cmake/squirrel.cmake)
 include(cmake/pocketpy.cmake)
 include(cmake/quickjs.cmake)
 include(cmake/janet.cmake)
+include(cmake/forth.cmake)
+include(cmake/miniscript.cmake)
+
+# After the languages: the tools check what those options came out as.
+include(cmake/tools.cmake)
 
 include(cmake/core.cmake)
 include(cmake/wave.cmake)
@@ -190,6 +220,7 @@ include(cmake/naett.cmake)
 include(cmake/studio.cmake)
 
 include(cmake/sdl.cmake)
+include(cmake/apple.cmake)
 include(cmake/libretro.cmake)
 include(cmake/n3ds.cmake)
 include(cmake/nswitch.cmake)

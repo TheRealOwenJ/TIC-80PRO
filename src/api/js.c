@@ -1014,6 +1014,70 @@ static JSValue js_fset(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueC
     return JS_UNDEFINED;
 }
 
+static JSValue js_vqt(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqt(tic, bin));
+}
+
+static JSValue js_vqts(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqts(tic, bin));
+}
+
+static JSValue js_vqtr(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqtr(tic, bin));
+}
+
+static JSValue js_vqtrs(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqtrs(tic, bin));
+}
+
+static JSValue js_vqtw(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqtw(tic, bin));
+}
+
+static JSValue js_vqtsw(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqtsw(tic, bin));
+}
+
+static JSValue js_vqtrw(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqtrw(tic, bin));
+}
+
+static JSValue js_vqtrsw(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 bin = getInteger(ctx, argv[0]);
+
+    return JS_NewFloat64(ctx, core->api.vqtrsw(tic, bin));
+}
+
 static JSValue js_fft(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
 {
     tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
@@ -1021,6 +1085,24 @@ static JSValue js_fft(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueCo
     s32 end_freq = getInteger2(ctx, argv[1], -1);
 
     return JS_NewFloat64(ctx, core->api.fft(tic, start_freq, end_freq));
+}
+
+static JSValue js_fftr(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 start_freq = getInteger(ctx, argv[0]);
+    s32 end_freq = getInteger2(ctx, argv[1], -1);
+
+    return JS_NewFloat64(ctx, core->api.fftr(tic, start_freq, end_freq));
+}
+
+static JSValue js_fftrs(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
+{
+    tic_core* core = getCore(ctx); tic_mem* tic = (tic_mem*)core;
+    s32 start_freq = getInteger(ctx, argv[0]);
+    s32 end_freq = getInteger2(ctx, argv[1], -1);
+
+    return JS_NewFloat64(ctx, core->api.fftrs(tic, start_freq, end_freq));
 }
 
 static JSValue js_ffts(JSContext *ctx, JSValueConst this_val, s32 argc, JSValueConst *argv)
@@ -1205,7 +1287,30 @@ static void callJavascriptBoot(tic_mem* tic)
     }
 
     JS_FreeValue(ctx, func);
+
+#if defined(BUILD_RENDER_CACHE)
+    JSValue scn_func = JS_GetPropertyStr(ctx, global, SCN_FN);
+    bool has_scn = JS_IsFunction(ctx, scn_func);
+    JS_FreeValue(ctx, scn_func);
+
+    if(!has_scn)
+    {
+        JSValue scanline_func = JS_GetPropertyStr(ctx, global, "scanline");
+        has_scn = JS_IsFunction(ctx, scanline_func);
+        JS_FreeValue(ctx, scanline_func);
+    }
+
+    JSValue bdr_func = JS_GetPropertyStr(ctx, global, BDR_FN);
+    bool has_bdr = JS_IsFunction(ctx, bdr_func);
+    JS_FreeValue(ctx, bdr_func);
+#endif
+
     JS_FreeValue(ctx, global);
+
+#if defined(BUILD_RENDER_CACHE)
+    core->state.has_scn = has_scn;
+    core->state.has_bdr = has_bdr;
+#endif
 }
 
 static const char* const JsKeywords [] =
