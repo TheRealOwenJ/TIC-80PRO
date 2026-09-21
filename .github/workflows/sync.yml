@@ -129,6 +129,16 @@ jobs:
             git checkout HEAD~1 -- .github/workflows/
           fi
 
+          # Restore README.md to the fork's version
+          README_CHANGED=$(git diff --name-only HEAD~1 HEAD -- README.md 2>/dev/null || true)
+
+          if [ -n "$README_CHANGED" ]; then
+            echo "Restoring README.md to fork version..."
+            git checkout HEAD~1 -- README.md
+            git add README.md
+            git commit --amend --no-edit
+          fi
+
           # Amend the merge commit if we made changes
           if [ -n "$NEW_FILES" ] || [ -n "$CHANGED_WORKFLOWS" ]; then
             git add .github/workflows/
