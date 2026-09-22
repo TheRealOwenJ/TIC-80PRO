@@ -513,7 +513,7 @@ jobs:
       - name: Install Host toolchain
         run: |
           apt-get update
-          apt-get install --assume-yes build-essential ruby-full
+          apt-get install --assume-yes build-essential ruby-full gcc-multilib g++-multilib
 
       - name: Prebuild
         run: |
@@ -580,7 +580,7 @@ jobs:
       - name: Install Host toolchain
         run: |
           apt-get update
-          apt-get install --assume-yes build-essential ruby-full
+          apt-get install --assume-yes build-essential ruby-full gcc-multilib g++-multilib
 
       - name: Prebuild
         run: |
@@ -650,7 +650,7 @@ jobs:
       - name: Install Host toolchain
         run: |
           apt-get update
-          apt-get install --assume-yes build-essential ruby-full
+          apt-get install --assume-yes build-essential ruby-full gcc-multilib g++-multilib
 
       - name: Build
         run: |
@@ -1020,6 +1020,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.commit || github.sha }}
           token: ${{ secrets.WORKFLOW_TOKEN }}
+
+      - name: Install Host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes gcc-multilib g++-multilib
 
       - uses: ruby/setup-ruby@v1
         with:
