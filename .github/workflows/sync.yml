@@ -44,7 +44,12 @@ jobs:
 
       - name: Fetch upstream
         run: |
+          git fetch --prune origin main
           git fetch --prune upstream main
+
+      - name: Sync origin
+        run: |
+          git merge origin/main --ff-only
 
       - name: Check for upstream changes
         id: changes
