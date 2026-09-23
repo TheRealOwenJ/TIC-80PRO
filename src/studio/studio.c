@@ -2130,6 +2130,13 @@ static void reloadConfirm(Studio* studio, bool yes, void* data)
 
 static void checkChanges(Studio* studio)
 {
+    static u32 tick_count = 0;
+    tick_count++;
+    if (tick_count < 30) {
+        return;
+    }
+    tick_count = 0;
+
     switch(studio->mode)
     {
     case TIC_START_MODE:
@@ -2494,6 +2501,8 @@ static void doCodeImport(Studio* studio)
                     s32 x = atoi(start);
                     s32 y = atoi(sep + 1);
 
+                    s32 offset = end - code.data + 1;
+                    memcpy(studio->code->src, code.data + offset, sizeof(tic_code) - offset);
                     if(x == 0 && y == 0)
                     {
                         if(studio->mode != TIC_RUN_MODE)
@@ -2501,8 +2510,6 @@ static void doCodeImport(Studio* studio)
                     }
                     else
                     {
-                        s32 offset = end - code.data + 1;
-                        memcpy(studio->code->src, code.data + offset, sizeof(tic_code) - offset);
                         codeSetPos(studio->code, x - 1, y - 1);
 
                         if(studio->mode == TIC_RUN_MODE)
