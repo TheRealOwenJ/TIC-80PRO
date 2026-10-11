@@ -18,7 +18,8 @@ if(BUILD_SOKOL)
 
     add_library(sokol STATIC ${SOKOL_SRC})
 
-    target_include_directories(sokol PUBLIC ${THIRDPARTY_DIR}/sokol)
+    # sokol is implemented inside sokol_impl.c, and its warnings are not ours
+    target_include_directories(sokol SYSTEM PUBLIC ${THIRDPARTY_DIR}/sokol)
 
     if(APPLE)
         target_compile_definitions(sokol PUBLIC SOKOL_METAL)
@@ -44,10 +45,15 @@ if(BUILD_SOKOL)
             "-framework Metal"
             "-framework MetalKit"
             "-framework AudioToolbox"
+            # The gamepad backend reads the pads through GameController, which
+            # needs no permission and knows the mainstream pads by itself.
+            "-framework GameController"
         )
 
     elseif(WIN32)
-        target_link_libraries(sokol PRIVATE d3d11)
+        # xinput comes with the system, and the gamepad backend reads it: an
+        # Xbox-family pad or anything that presents as one.
+        target_link_libraries(sokol PRIVATE d3d11 xinput)
     elseif(EMSCRIPTEN)
 
     else()
@@ -89,11 +95,13 @@ if(BUILD_SOKOL)
         add_executable(${TIC80_TARGET} ${TIC80_SRC})
     endif()
 
+    # clay comes in the same way, through the controls the app draws
+    target_include_directories(${TIC80_TARGET} SYSTEM PRIVATE ${THIRDPARTY_DIR}/clay)
+
     target_include_directories(${TIC80_TARGET} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/src
-        ${THIRDPARTY_DIR}/sokol
-        ${THIRDPARTY_DIR}/clay)
+        ${THIRDPARTY_DIR}/sokol)
 
     target_link_libraries(${TIC80_TARGET} PRIVATE tic80studio sokol)
 

@@ -46,6 +46,10 @@
 // after a stall replays at most this many ticks of the backlog.
 #define MAX_CATCH_UP 4
 
+// The machine's pixels a tick the mouse travels under a right stick pushed all
+// the way.
+#define PAD_MOUSE_SPEED 4
+
 #if defined(TOUCH_INPUT_SUPPORT)
 // How long the controls stay out after the last touch.
 #define TOUCH_TIMEOUT 10.0f
@@ -324,7 +328,9 @@ static const u8 Keymap[] =
 
 static tic_key translate_key(sapp_keycode code)
 {
-    return code < COUNT_OF(Keymap) ? (tic_key)Keymap[code] : tic_key_unknown;
+    const u32 key = (u32)code;
+
+    return key < (u32)COUNT_OF(Keymap) ? (tic_key)Keymap[key] : tic_key_unknown;
 }
 
 static void handle_key(sapp_keycode code, bool down)
@@ -390,6 +396,48 @@ static bool update_mouse(float x, float y)
     return true;
 }
 
+// A pad's right stick moves the machine's mouse the way the SDL layer's right
+// stick did: it is motion like the pointer's, and it moves the machine's own
+// cursor where the pointer is not captured.
+static void pad_mouse(bool relative)
+{
+    float x = 0.0f;
+    float y = 0.0f;
+
+    for (s32 i = 0; i < SGAMEPAD_MAX_GAMEPADS && i < (s32)TIC_GAMEPADS; i++)
+    {
+        const sgamepad_state pad = sgamepad_gamepad_state(i);
+
+        x += pad.right_x;
+        y += pad.right_y;
+    }
+
+    if (x == 0.0f && y == 0.0f)
+        return;
+
+    platform.pointer.moveX += x * PAD_MOUSE_SPEED;
+    platform.pointer.moveY += y * PAD_MOUSE_SPEED;
+
+    // A captured pointer has no place on the screen to be moved to: its motion
+    // is what the cart reads, and that is the field handed over below.
+    if (relative)
+        return;
+
+    s32 mx = platform.input.mouse.x;
+    s32 my = platform.input.mouse.y;
+
+    // A mouse the machine was told is off its screen — the height is what
+    // carries that — comes back at the middle, the only place left to start.
+    if (my >= TIC80_FULLHEIGHT)
+    {
+        mx = TIC80_FULLWIDTH / 2;
+        my = TIC80_FULLHEIGHT / 2;
+    }
+
+    platform.input.mouse.x = CLAMP(mx + (s32)(x * PAD_MOUSE_SPEED), 0, TIC80_FULLWIDTH - 1);
+    platform.input.mouse.y = CLAMP(my + (s32)(y * PAD_MOUSE_SPEED), 0, TIC80_FULLHEIGHT - 1);
+}
+
 // Handles the keyboard state over to the tick's input, and clears what a tick
 // has consumed: a press that arrives between ticks is not reported twice.
 static void build_input(void)
@@ -424,7 +472,7 @@ static void build_input(void)
         tic80_gamepads pads = { 0 };
         tic80_gamepad* slots[TIC_GAMEPADS] = { &pads.first, &pads.second, &pads.third, &pads.fourth };
 
-        for (s32 i = 0; i < SGAMEPAD_MAX_GAMEPADS && i < TIC_GAMEPADS; i++)
+        for (s32 i = 0; i < SGAMEPAD_MAX_GAMEPADS && i < (s32)TIC_GAMEPADS; i++)
         {
             const sgamepad_state pad = sgamepad_gamepad_state(i);
 
@@ -625,6 +673,10 @@ static void tick(void)
         // platform reports: a browser grants the lock a click later, and a
         // machine told otherwise would stop asking in the meantime.
         platform.input.mouse.relative = relative ? 1 : 0;
+
+        // The stick joins the pointer's motion here, so this tick hands it
+        // over the way it hands the pointer's own.
+        pad_mouse(relative);
 
         // Motion and position are one field of the machine's mouse, so only
         // the one it reads is written: a captured pointer has no place on the

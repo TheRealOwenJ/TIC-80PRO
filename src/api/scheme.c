@@ -55,7 +55,7 @@ s7_pointer scheme_cls(s7_scheme* sc, s7_pointer args)
     // cls(color=0)
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     const int argn = s7_list_length(sc, args);
-    const u8 color = (args > 0) ? s7_integer(s7_car(args)) : 0;
+    const u8 color = argn > 0 ? s7_integer(s7_car(args)) : 0;
     core->api.cls(tic, color);
     return s7_nil(sc);
 }
@@ -212,18 +212,23 @@ u8 get_note_octave(char c) {
 
 s7_pointer scheme_sfx(s7_scheme* sc, s7_pointer args)
 {
-    // sfx(id note=-1 duration=-1 channel=0 volume=15 speed=0)
+    // sfx(id note=-1 duration=-1 channel=0 volume=15 speed=-1)
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     const s32 id = s7_integer(s7_car(args));
 
     const int argn = s7_list_length(sc, args);
     int note = -1;
     int octave = -1;
+    if (id >= 0 && id < SFX_COUNT) {
+        tic_sample* effect = tic->ram->sfx.samples.data + id;
+        note = effect->note;
+        octave = effect->octave;
+    }
     if (argn > 1) {
         s7_pointer note_ptr = s7_cadr(args);
         if (s7_is_integer(note_ptr)) {
             const s32 raw_note = s7_integer(note_ptr);
-            if (raw_note >= 0 || raw_note <= 95) {
+            if (raw_note != -1) {
                 note = raw_note % 12;
                 octave = raw_note / 12;
             }
@@ -266,7 +271,14 @@ s7_pointer scheme_sfx(s7_scheme* sc, s7_pointer args)
             volumes[1] = s7_integer(s7_cadr(volume_arg)) & 0xF;
         }
     }
-    const s32 speed = argn > 5 ? s7_integer(s7_list_ref(sc, args, 5)) : 0;
+    s32 speed = argn > 5 ? s7_integer(s7_list_ref(sc, args, 5)) : -1;
+    if (speed == -1) {
+        if (id >= 0 && id < SFX_COUNT) {
+            speed = (tic->ram->sfx.samples.data + id)->speed;
+        } else {
+            speed = SFX_DEF_SPEED;
+        }
+    }
 
     core->api.sfx(tic, id, note, octave, duration, channel, volumes[0], volumes[1], speed);
     return s7_nil(sc);
@@ -467,18 +479,21 @@ s7_pointer scheme_pmem(s7_scheme* sc, s7_pointer args)
 }
 s7_pointer scheme_time(s7_scheme* sc, s7_pointer args)
 {
+    (void)args;
     // time() -> ticks
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     return s7_make_real(sc, core->api.time(tic));
 }
 s7_pointer scheme_tstamp(s7_scheme* sc, s7_pointer args)
 {
+    (void)args;
     // tstamp() -> timestamp
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     return s7_make_integer(sc, core->api.tstamp(tic));
 }
 s7_pointer scheme_exit(s7_scheme* sc, s7_pointer args)
 {
+    (void)args;
     // exit()
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     core->api.exit(tic);
@@ -508,6 +523,7 @@ s7_pointer scheme_font(s7_scheme* sc, s7_pointer args)
 }
 s7_pointer scheme_mouse(s7_scheme* sc, s7_pointer args)
 {
+    (void)args;
     // mouse() -> x y left middle right scrollx scrolly
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     const tic_point point = core->api.mouse(tic);
@@ -705,6 +721,7 @@ s7_pointer scheme_vbank(s7_scheme* sc, s7_pointer args)
 }
 s7_pointer scheme_reset(s7_scheme* sc, s7_pointer args)
 {
+    (void)args;
     // reset()
     tic_core* core = getSchemeCore(sc); tic_mem* tic = (tic_mem*)core;
     core->api.reset(tic);
@@ -1015,6 +1032,7 @@ static void callSchemeBoot(tic_mem* tic)
 
 static void callSchemeScanline(tic_mem* tic, s32 row, void* data)
 {
+    (void)data;
     tic_core* core = (tic_core*)tic;
     s7_scheme* sc = core->currentVM;
 
@@ -1027,6 +1045,7 @@ static void callSchemeScanline(tic_mem* tic, s32 row, void* data)
 
 static void callSchemeBorder(tic_mem* tic, s32 row, void* data)
 {
+    (void)data;
     tic_core* core = (tic_core*)tic;
     s7_scheme* sc = core->currentVM;
 
@@ -1039,6 +1058,7 @@ static void callSchemeBorder(tic_mem* tic, s32 row, void* data)
 
 static void callSchemeMenu(tic_mem* tic, s32 index, void* data)
 {
+    (void)data;
     tic_core* core = (tic_core*)tic;
     s7_scheme* sc = core->currentVM;
 
@@ -1063,7 +1083,7 @@ static const char* const SchemeKeywords [] =
     "cons", "car", "cdr", "set-car!", "set-cdr!", "cadr", "cddr",
     "cdar", "caar", "caadr", "caddr", "cadar", "caaar", "cdadr",
     "cdddr", "caddar", "cadaar", "cdaadr", "cdaddr", "cdadar",
-    "cdaaar", "cddadr", "cddddr", "cdddar", "cddaar", "list?"
+    "cdaaar", "cddadr", "cddddr", "cdddar", "cddaar", "list?",
     "proper-list?", "length", "make-list", "list", "reverse",
     "map", "for-each", "list->vector", "list->string", "list-ref", "null?",
     "not", "number->string", "odd?", "even?", "zero?",
@@ -1088,7 +1108,7 @@ static const char* const SchemeKeywords [] =
 
 static inline bool scheme_isalnum(char c)
 {
-    return isalnum(c) || c == '_' || c == '-' || c == ':' || c == '#' || c == '!'
+    return isalnum((u8)c) || c == '_' || c == '-' || c == ':' || c == '#' || c == '!'
         || c == '+' || c == '=' || c == '&' || c == '^' || c == '%' || c == '$' || c == '@';
 }
 
@@ -1124,7 +1144,7 @@ static const tic_outline_item* getSchemeOutline(const char* code, s32* size)
             {
                 char c = *ptr;
 
-                if(scheme_isalnum(c));
+                if(scheme_isalnum((u8)c));
                 else
                 {
                     end = ptr;
@@ -1224,6 +1244,6 @@ TIC_EXPORT const tic_script EXPORT_SCRIPT(Scheme) =
     .keywords               = SchemeKeywords,
     .keywordsCount          = COUNT_OF(SchemeKeywords),
 
-    .demo = {DemoRom, sizeof DemoRom},
+    .demo = {DemoRom, sizeof DemoRom, NULL},
     .mark = {MarkRom, sizeof MarkRom, "schememark.tic"},
 };

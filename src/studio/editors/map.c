@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "map.h"
+#include "studio/keyboard.h"
 #include "ext/history.h"
 
 #define MAP_WIDTH (TIC80_WIDTH)
@@ -109,7 +110,7 @@ static void drawTileIndex(Map* map, s32 x, s32 y)
 
     if(index >= 0)
     {
-        char buf[sizeof "#9999"];
+        char buf[sizeof "#-2147483648"];
         sprintf(buf, "#%03i", index);
         tic_api_print(map->tic, buf, x, y, tic_color_light_grey, true, 1, false);
     }
@@ -203,7 +204,7 @@ void mapBand(void* app, Toolbar* tb)
         if(map->sheet.blit.pages > 1)
             for(s32 i = map->sheet.blit.pages - 1; i >= 0; i--)
             {
-                static char tip[16];
+                static char tip[sizeof "PAGE " + sizeof "-2147483648"];
                 sprintf(tip, "PAGE %i", i);
 
                 PageTab tab = {{'1' + i, '\0'}, i == map->sheet.blit.page};
@@ -231,7 +232,7 @@ void mapBand(void* app, Toolbar* tb)
             tic_bpp mode = 1 << (2 - i);
             bool active = mode == map->sheet.blit.mode;
 
-            static char tip[24];
+            static char tip[sizeof "%iBITS PER PIXEL" + sizeof "-2147483648"];
             sprintf(tip, mode > 1 ? "%iBITS PER PIXEL" : "%iBIT PER PIXEL", mode);
 
             char label[2] = {Depths[i], '\0'};
@@ -288,7 +289,7 @@ void mapBand(void* app, Toolbar* tb)
         // DRAW, DRAG MAP, SELECT, FILL left to right.
         for(s32 i = 0; i < COUNT_OF(Tools); i++)
         {
-            bool active = map->mode == Tools[i].mode;
+            bool active = (s32)map->mode == Tools[i].mode;
 
             ToolbarButton button =
             {
@@ -1153,27 +1154,20 @@ static void copyFromClipboard(Map* map)
     }
 }
 
-static inline bool keyWasPressedOnce(Map* map, s32 key)
-{
-    tic_mem* tic = map->tic;
-
-    return tic_api_keyp(tic, key, -1, -1);
-}
-
 static void processKeyboard(Map* map)
 {
     tic_mem* tic = map->tic;
 
     if(isIdle(map))
     {
-        if(!sheetVisible(map) && keyWasPressedOnce(map, tic_key_shift))
+        if(!sheetVisible(map) && keyboard_pressed_once(map->tic, tic_key_shift))
         {
                 map->anim.movie = resetMovie(&map->anim.show);
                 map->sheet.keep = true;
         }
         else
         {
-            if(map->sheet.keep && sheetVisible(map) && keyWasPressedOnce(map, tic_key_shift))
+            if(map->sheet.keep && sheetVisible(map) && keyboard_pressed_once(map->tic, tic_key_shift))
                 map->anim.movie = resetMovie(&map->anim.hide);
         }
     }
@@ -1296,7 +1290,7 @@ static void scanline(tic_mem* tic, s32 row, void* data)
         memcpy(&tic->ram->vram.palette, getBankPalette(map->studio, false), sizeof(tic_palette));
 }
 
-static void emptyDone(void* data) {}
+static void emptyDone(void* data) {(void)data; }
 
 static void setIdle(void* data)
 {

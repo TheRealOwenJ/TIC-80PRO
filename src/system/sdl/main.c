@@ -22,6 +22,7 @@
 
 #include "studio/system.h"
 #include "tools.h"
+#include "tilesheet.h"
 #include "tic_assert.h"
 
 #include "ext/fft.h"
@@ -301,6 +302,7 @@ static void renderCopy(Renderer render, Texture tex, SDL_Rect src, SDL_Rect dst)
 
 static void audioCallback(void* userdata, u8* stream, s32 len)
 {
+    (void)userdata;
     LOCK_MUTEX(platform.audio.mutex)
     {
         const tic_mem* tic = studio_mem(platform.studio);
@@ -340,16 +342,7 @@ static void initSound()
     platform.audio.device = SDL_OpenAudioDevice(NULL, 0, &want, &platform.audio.spec, 0);
 }
 
-static const u8* getSpritePtr(const tic_tile* tiles, s32 x, s32 y)
-{
-    enum { SheetCols = (TIC_SPRITESHEET_SIZE / TIC_SPRITESIZE) };
-    return tiles[x / TIC_SPRITESIZE + y / TIC_SPRITESIZE * SheetCols].data;
-}
 
-static u8 getSpritePixel(const tic_tile* tiles, s32 x, s32 y)
-{
-    return tic_tool_peek4(getSpritePtr(tiles, x, y), (x % TIC_SPRITESIZE) + (y % TIC_SPRITESIZE) * TIC_SPRITESIZE);
-}
 
 static void setWindowIcon()
 {
@@ -363,7 +356,7 @@ static void setWindowIcon()
         for(s32 j = 0, index = 0; j < Size; j++)
             for(s32 i = 0; i < Size; i++, index++)
             {
-                u8 color = getSpritePixel(studio_config(platform.studio)->cart->bank0.tiles.data, i/Scale, j/Scale);
+                u8 color = tic_tilesheet_getflatpix(studio_config(platform.studio)->cart->bank0.tiles.data, i/Scale, j/Scale);
                 pixels[index] = color == ColorKey ? 0 : pal.data[color];
             }
 
@@ -388,6 +381,7 @@ static void updateTextureBytes(Texture texture, const void* data, s32 width, s32
     else
 #endif
     {
+        (void)width;
         void* pixels = NULL;
         s32 pitch = 0;
         SDL_LockTexture(texture.sdl, NULL, &pixels, &pitch);
@@ -992,7 +986,7 @@ static void processGamepad()
                 SDL_JoystickID id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller));
 
                 bool mapped = false;
-                for(s32 j = 0; j < TIC_GAMEPADS; j++)
+                for(s32 j = 0; j < (s32)TIC_GAMEPADS; j++)
                 {
                     if(platform.gamepad.mapping[j] == id)
                     {
@@ -1003,7 +997,7 @@ static void processGamepad()
 
                 if(!mapped && isControllerActive(controller))
                 {
-                    for(s32 j = 0; j < TIC_GAMEPADS; j++)
+                    for(s32 j = 0; j < (s32)TIC_GAMEPADS; j++)
                     {
                         if(platform.gamepad.mapping[j] == -1)
                         {
@@ -1015,7 +1009,7 @@ static void processGamepad()
             }
         }
 
-        for(s32 i = 0; i < TIC_GAMEPADS; i++)
+        for(s32 i = 0; i < (s32)TIC_GAMEPADS; i++)
         {
             SDL_JoystickID id = platform.gamepad.mapping[i];
 
@@ -1150,7 +1144,7 @@ static void processTouchInput()
 }
 #endif
 
-static const u32 KeyboardCodes[tic_keys_count] =
+static const s32 KeyboardCodes[tic_keys_count] =
 {
     #include "keycodes.inl"
 };
@@ -1643,6 +1637,11 @@ void tic_sys_open_path(const char* path)
 
     sprintf(command, "open \"%s\"", path);
     system(command);
+
+#else
+
+    (void)path;
+    (void)command;
 
 #endif
 }
